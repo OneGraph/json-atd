@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link href="css/style.css" rel="stylesheet" type="text/css">
+    <link rel="icon" href="https://clojurescript.org/images/cljs-logo-icon-32.png">
+  </head>
+  <body>
+    <div id="app">
+      <h2>JSON->ATD</h2>
+      <input type="text" id="topLevel" placeholder="Top-level type name"></input><br />
+      <textarea id="results" style="width:45%;" placeholder="Results will be here" rows="50"></textarea>
+      <textarea id="source" style="width:45%;float:left;" placeholder="JSON here" rows="50"></textarea><br /><button id="submit" onclick="console.log('yeah');window.handleUi();" >Convert</button>
+      
+    </div>
+    <script src="js/compiled/cljsatd.js" type="text/javascript"></script>
+  </body>
+</html>
