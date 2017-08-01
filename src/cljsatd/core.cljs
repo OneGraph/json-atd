@@ -1,7 +1,11 @@
 (ns cljsatd.core
   (:require [cljsatd.example :as example]
+            [clojure.pprint :as pprint]
             [clojure.string :as string]
-            [camel-snake-kebab.core :as csk]))
+            [instaparse.core :as insta]
+            [camel-snake-kebab.core :as csk]
+            [clojure.pprint :as pprint]
+            [cljsatd.gen-resolver :as gen-resolver]))
 
 (enable-console-print!)
 
@@ -12,12 +16,10 @@
 (defn clojurify [str]
   (js->clj (.parse js/JSON str)))
 
-(println example/json-string)
+;;(println example/atd-string)
 
 (def ds
   (.parse js/JSON example/json-string))
-
-(js/console.log (aget ds 0))
 
 (def dss
   (js->clj ds))
@@ -156,18 +158,70 @@
                              (str "type " type-name " = {\n" nxt-string "\n}\n")))
                          sorted)))))
 
+(defn set-atd-results! [value]
+  (set! (.-value (js/document.getElementById "atd-results")) value))
+
+(defn set-resolver-results! [value]
+  (set! (.-value (js/document.getElementById "resolver-results")) value))
+
 (defn handle-ui-event [event]
   (let [top-level (.-value (js/document.getElementById "topLevel"))
         source    (.-value (js/document.getElementById "source"))
         _ (println "src: " source)
-        results   (js/document.getElementById "results")
         text      (atd-gen top-level (clojurify source))] 
-    (set! (.-innerText results) text)))
+    (set-atd-results! text)))
 
 (aset js/window "handleUi"
       (fn ui-handler [event]
         (js/console.log "doing it")
         (handle-ui-event event)))
+
+;;;;******************************************************************************
+;;  Instaparse
+;;;;******************************************************************************
+
+(def parse-atd
+  (insta/parser
+    "defs = TOP-TYPE*
+     COMMENT = '(*' #'[a-zA-Z0-9 ]*' '*)'
+     <WHITESPACE> = <#'\\s|\n'+>
+     NL = (<WHITESPACE> | COMMENT)
+     <SIMPLE-TOP-TYPE> = FIELD-TYPE <';'?>
+     <OBJECT-TOP-TYPE> = <'{'> <NL*> (COMPOUND-FIELD | FIELD)+ <NL*> <'}'>
+     TOP-TYPE = <'type '> TOP-NAME <NL*> <'='> <NL*> (OBJECT-TOP-TYPE | SIMPLE-TOP-TYPE) <NL*>
+     TOP-NAME = #'\\w+'
+
+     <LIST-TYPE> = 'list'
+     <OPTION-TYPE> = 'option'
+     FN-TYPE = LIST-TYPE | OPTION-TYPE
+     PARAMETERIZED-TYPE = (BASE-TYPE <NL*> FN-TYPE)
+     BASE-TYPE = #'[\\w]+'
+     FIELD-TYPE= <'('> <NL*> PARAMETERIZED-TYPE <NL*> <')'> <NL*> FN-TYPE | PARAMETERIZED-TYPE | BASE-TYPE
+
+     COMPOUND-FIELD = <NL*> FIELD-NAME <#'\\s*: '> FIELD-TYPE <NL*> <#';?'> <NL*>
+
+     FIELD = FIELD-NAME <NL*> <#':'> <NL*> BASE-TYPE <#';?'> <NL*>
+     FIELD-NAME-BASE = #'[\\w]+'
+     FIELD-NAME-WITH-DEFAULT = <#'\\~'> FIELD-NAME-BASE
+     FIELD-NAME-OPTIONAL = <#'\\?'> FIELD-NAME-BASE
+     FIELD-NAME = <NL*> ( FIELD-NAME-BASE | FIELD-NAME-WITH-DEFAULT | FIELD-NAME-OPTIONAL ) <NL*> (OCAML-ATTRS | JSON-ATTRS)*
+
+     OCAML-ATTR-NAME = #'\\w+'
+     OCAML-ATTR-VALUE = #'.'+
+     OCAML-ATTR = OCAML-ATTR-NAME <'='> OCAML-ATTR-NAME
+     OCAML-ATTRS = <'<ocaml '> #'.'+ <'>'>
+     JSON-ATTRS = <'<json '> #'.'+ <'>'>"))
+
+(def parsed-atd
+  ;;(parse-atd example/test-atd-string)
+  (parse-atd example/youtube-atd-string)
+  )
+
+;; (pprint/pprint parsed-atd)
+;;(println (gen-resolver/gen-resolver parsed-atd))
+(set-resolver-results! (string/join "\n" (mapv (partial gen-resolver/top-level-def->resolver "yt" parsed-atd) (gen-resolver/parsed-atd->clj parsed-atd))))
+#_(mapv (partial gen-resolver/top-level-def->resolver "yt" parsed-atd) (gen-resolver/parsed-atd->clj parsed-atd))
+
 
 (defn on-js-reload []
   ;; optionally touch your app-state to force rerendering depending on

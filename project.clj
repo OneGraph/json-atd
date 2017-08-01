@@ -7,6 +7,7 @@
   :min-lein-version "2.7.1"
 
   :dependencies [[camel-snake-kebab "0.4.0"]
+                 [instaparse "1.4.7"]
                  [org.clojure/clojure "1.8.0"]
                  [org.clojure/clojurescript "1.9.229"]
                  [org.clojure/core.async  "0.3.442"
