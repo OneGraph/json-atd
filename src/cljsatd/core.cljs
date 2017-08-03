@@ -24,6 +24,8 @@
 (def dss
   (js->clj ds))
 
+;;(pprint/pprint (first dss))
+
 (defn traverse [path obj]
   (let [path   (or path [])
         kind   (cond
@@ -33,7 +35,7 @@
                  (nil? obj)     :nullable
                  (map? obj)     :object
                  (coll? obj)    :collection
-                 :else          :unknown) 
+                 :else          :unknown)
         result (case kind
                  :boolean    {path :bool}
                  :string     {path :string}
@@ -46,7 +48,12 @@
                                                   (merge acc nxt)) {}))}
                  :collection {path (map-indexed
                                      (fn [idx next-obj]
-                                        (traverse (conj path idx) next-obj)) obj)})]
+                                       (traverse (conj path idx) next-obj)) obj)})]
+    #_(do
+      (println path)
+      (when (empty? path)
+        (println "\tFound blank path: " kind " -> ")
+        (js/console.log result)))
     result))
 
 (defn path->name [path kind]
@@ -83,21 +90,20 @@
                                           (temporarily-marked? node)))
         visit               (fn visit [node]
                               (let [[type-name fields] node]
-                                (println "Visit: " type-name)
                                 (cond
                                   (permanently-marked? node) nil
                                   (temporarily-marked? node) nil ;;(assert false (str "Cyclical deps: " type-name " Node: " (pr-str node)))
                                   :else                      (let [field-types        (distinct (mapcat second fields))
-                                                                   edge-names         (remove #{:option :collection :bool :int :string} field-types)
+                                                                   edge-names         (remove #{:option :collection :bool :int :string ""} field-types)
                                                                    edges              (filter (fn [[k v]]
                                                                                                 (get (set edge-names) k))
                                                                                               object-list)]
-                                                               (js/console.log "-> Node & edge-names: " type-name (pr-str edge-names)
+                                                               #_(js/console.log "-> Node & edge-names: " type-name (pr-str edge-names)
                                                                                (pr-str edges))
                                                                (temporarily-mark! node)
                                                                (doseq [edge edges]
                                                                  (visit edge))
-                                                               (js/console.log "<- Node: " type-name)
+                                                               #_(js/console.log "<- Node: " type-name)
                                                                (permanently-mark! node)
                                                                ;;(js/console.log "Finished: " (pr-str node))
                                                                (swap! final (fn [ov] (vec (concat ov [node]))))))))]
@@ -113,18 +119,27 @@
                        (cond
                          (map? kind)  (do
                                         (top-helper (seq kind))
-                                        (swap! acc #(update-in % [(path->name (drop-last 1 path) :object) (last path)]
-                                                               (fnil conj #{})
-                                                               (path->name path :object))))
+                                        (let [k* [(path->name (drop-last 1 path) :object) (last path)]
+                                              k  (if (empty? (first k*))
+                                                   [top-level-name (last path)]
+                                                   k*)]
+                                          (when-not (nil? (last path))
+                                            (swap! acc #(update-in % k
+                                                                   (fnil conj #{})
+                                                                   (path->name path :object))))))
                          (coll? kind) (do
                                         (doseq [ks kind]
                                           (top-helper (map (fn [[p* v]]
                                                              (let [p (filter string? p*)]
                                                                [p v]))
                                                            (seq ks))))
-                                        (swap! acc #(update-in % [(path->name (drop-last 1 path) :object) (last path)]
-                                                               (fnil conj #{})
-                                                               :collection)))
+                                        (let [k* [(path->name (drop-last 1 path) :object) (last path)]
+                                              k  (if (empty? (first k*))
+                                                   [top-level-name (last path)]
+                                                   k*)]
+                                          (swap! acc #(update-in % k
+                                                                 (fnil conj #{})
+                                                                 :collection))))
                          :else        (let [k* [(path->name (drop-last 1 path) :object) (last path)]
                                             k  (if (empty? (first k*))
                                                  [top-level-name (last path)]
@@ -132,14 +147,15 @@
                                         (swap! acc #(update-in % k (fnil conj #{}) kind))))))]
     (top-helper annotated)
     (seq @acc)
+    (js/console.log @acc)
     (let [sorted (sort-deps @acc)]
       (string/join "\n"
                    (mapv (fn mid-helper [[type-name fields]]
                            (let [fields-strs (map (fn bottom-helper [[field kind]]
                                                     (let [collection?    (when (:collection kind)
-                                                                           "list ")
+                                                                           " list")
                                                           nullable?      (when (:option kind)
-                                                                           "option ")
+                                                                           " option")
                                                           primitive-kind (cond
                                                                            (:int kind)             "int"
                                                                            (:bool kind)            "bool"
@@ -151,12 +167,20 @@
                                                                                                      (path->name [h] :object)))
                                                           result         (str "  " (when nullable?
                                                                                      "?")
-                                                                              field ": " collection? nullable? primitive-kind ";")]
+                                                                              field ": " primitive-kind collection? nullable? ";")]
                                                       result))
                                                   fields)
                                  nxt-string  (string/join "\n" fields-strs)]
+                             #_(when (string/blank? type-name)
+                               (println "Found blank: " (string/blank? type-name) (nil? type-name) fields))
                              (str "type " type-name " = {\n" nxt-string "\n}\n")))
                          sorted)))))
+
+(defn set-error-header! [value]
+  (set! (.-innerText (js/document.getElementById "errors")) value))
+
+(defn set-json-source! [value]
+  (set! (.-value (js/document.getElementById "source")) value))
 
 (defn set-atd-results! [value]
   (set! (.-value (js/document.getElementById "atd-results")) value))
@@ -164,17 +188,13 @@
 (defn set-resolver-results! [value]
   (set! (.-value (js/document.getElementById "resolver-results")) value))
 
-(defn handle-ui-event [event]
-  (let [top-level (.-value (js/document.getElementById "topLevel"))
-        source    (.-value (js/document.getElementById "source"))
-        _ (println "src: " source)
-        text      (atd-gen top-level (clojurify source))] 
-    (set-atd-results! text)))
+(defn get-top-level-and-prefix []
+  (some-> (.-value (js/document.getElementById "topLevel"))
+          (string/split #"/")))
 
-(aset js/window "handleUi"
-      (fn ui-handler [event]
-        (js/console.log "doing it")
-        (handle-ui-event event)))
+(defonce -dummy
+  (do
+    (set-json-source! example/json-string)))
 
 ;;;;******************************************************************************
 ;;  Instaparse
@@ -212,14 +232,56 @@
      OCAML-ATTRS = <'<ocaml '> #'.'+ <'>'>
      JSON-ATTRS = <'<json '> #'.'+ <'>'>"))
 
+(println "parsing...")
+(def top-atd-string
+  (let [[top-level prefix] (get-top-level-and-prefix)]
+    (atd-gen top-level (clojurify example/json-string))))
+
+(println "done:")
+(println top-atd-string)
+
 (def parsed-atd
   ;;(parse-atd example/test-atd-string)
-  (parse-atd example/youtube-atd-string)
+  ;;(parse-atd example/test-atd-string)
+  ;;(parse-atd example/test-atd-string)
+  (parse-atd top-atd-string)
   )
 
-;; (pprint/pprint parsed-atd)
-;;(println (gen-resolver/gen-resolver parsed-atd))
-(set-resolver-results! (string/join "\n" (mapv (partial gen-resolver/top-level-def->resolver "yt" parsed-atd) (gen-resolver/parsed-atd->clj parsed-atd))))
+;;(pprint/pprint parsed-atd)
+(println parsed-atd)
+
+(println (gen-resolver/gen-resolver parsed-atd))
+
+;;(pr-str (keys parse-atd))
+
+(defn handle-ui-event* [event]
+  (let [[top-level prefix] (get-top-level-and-prefix)
+        source             (.-value (js/document.getElementById "source"))
+        atd-string         (atd-gen top-level (clojurify source))
+        parsed-atd         (parse-atd atd-string)]
+    (set-atd-results! atd-string)
+    ;;(set-error-header! (pr-str (keys parse-atd)))
+    ;;(println "ffirst: " (first parsed-atd) (ffirst parsed-atd) (= :index (ffirst parsed-atd)))
+    (if (try
+          (= :index (ffirst parsed-atd))
+          (catch js/Error e
+            false))
+      (set-error-header! (with-out-str (println parsed-atd)))
+      (do
+        (println "dispatch from: " (first parsed-atd))
+        (let [[top-level-name prefix module-name] (get-top-level-and-prefix)]
+          (->> (gen-resolver/parsed-atd->clj parsed-atd)
+               (mapv (partial gen-resolver/top-level-def->resolver prefix module-name parsed-atd))
+               (string/join "\n" )
+               (set-resolver-results!)))))))
+
+(defn handle-ui-event [event]
+  (handle-ui-event* event))
+
+(aset js/window "handleUi"
+      (fn ui-handler [event]
+        (js/console.log "doing it")
+        (handle-ui-event event)))
 #_(mapv (partial gen-resolver/top-level-def->resolver "yt" parsed-atd) (gen-resolver/parsed-atd->clj parsed-atd))
 
 

@@ -9,7 +9,8 @@
   <body>
     <div id="app">
       <h2>JSON->ATD</h2>
-      <input type="text" id="topLevel" placeholder="Top-level type name"></input><br />
+      <h3 id="errors" style="color:red;"></h3>
+      <input type="text" id="topLevel" placeholder="Top-level type name" value="accountSettings/index/ServiceTwitter_j"></input><br />
       <textarea id="atd-results" style="width:30%;" placeholder="ATD will be here" rows="50"></textarea>
       <textarea id="resolver-results" style="width:30%;" placeholder="Resolver will be here" rows="50"></textarea>
       <textarea id="source" style="width:30%;float:left;" placeholder="JSON here" rows="50"></textarea><br /><button id="submit" onclick="console.log('yeah');window.handleUi();" >Convert</button>

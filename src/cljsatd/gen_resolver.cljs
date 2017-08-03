@@ -1,5 +1,6 @@
 (ns cljsatd.gen-resolver
-  (:require [clojure.string :as string]
+  (:require [camel-snake-kebab.core :as csk]
+            [clojure.string :as string]
             [cljsatd.utils :as utils :refer [ffilter]]))
 
 (defn upper-case-first [s]
@@ -51,9 +52,15 @@
 
 (defmethod parsed-atd->clj :TOP-TYPE [definition]
   (let [[_ [_ top-name] & fields] definition]
-    (let [fields (mapv parsed-atd->clj fields)]
+    (let [fields                 (mapv parsed-atd->clj fields)
+          ;;top-level-simple-type? is like `type timelineResult = list tweet`, (no sub fields)
+          top-level-simple-type? (and (= 1 (count fields))
+                                      (every? (comp nil? :name) fields))]
       {:name   top-name
-       :fields fields})))
+       :fields (if top-level-simple-type?
+                 (update-in fields [0] merge {:name    top-name
+                                              :simple? top-level-simple-type?})
+                 fields)})))
 
 (defmethod parsed-atd->clj :defs [definition]
   (let [top-types (drop 1 definition)]
@@ -87,7 +94,7 @@
                                                                                              is-option?    ""
                                                                                              is-list?      (str "(" next-type)
                                                                                              is-primitive? next-type
-                                                                                             :else         (str "Lazy.(force " prefix (upper-case-first next-type) ")"))
+                                                                                             :else         (str "(" prefix (upper-case-first next-type) ")"))
                                                                      full-next-acc         (str next-acc "("
                                                                                                 non-null-str
                                                                                                 next-type-str
@@ -102,25 +109,26 @@
                                                                :constructor? false} ""] type)]
                                     type-str)
                                   (get primitive-types type) (str "(non_null " type ")")
-                                  :else                      (str "(non_null Lazy.(force " prefix (upper-case-first type) "))"))
-        let-field-name          (str prefix (upper-case-first object-name) (upper-case-first field-name) "Field")]
+                                  :else                      (str "(non_null " prefix (upper-case-first type) ")"))
+        let-field-name          (csk/->camelCase (str prefix "_" object-name "_" field-name "_field"))]
+    ;;(println "field def: " field-def)
     {:let-name let-field-name
-     :def      (str let-field-name " = Schema.(makeField \"" field-name "\" \"\" " type-str " 
+     :def      (str "let " let-field-name " = Schema.(makeField \"" (csk/->camelCase field-name) "\" \"\" " type-str " 
              (
                 fun (ctx: Common.schemaContext) (" object-name ": " module-name "." object-name ") =>
-                  " module-name ".(" object-name "." field-name ")
-              ))")}))
+                  " module-name ".(" object-name (when-not (:simple? field-def)
+                                                   (str "." field-name)) ")
+              ));")}))
 
-(defn top-level-def->resolver [prefix all-top-levels top-level-def]
-  (let [module-name           "Youtube_j" 
+(defn top-level-def->resolver [prefix json-module-name all-top-levels top-level-def]
+  (let [module-name           json-module-name
         {:keys [name fields]} top-level-def
         top-name              (str prefix (upper-case-first name))
         reason-fields         (mapv (partial field-def->resolver prefix module-name name all-top-levels) fields)
-        fields-defs           (string/join "\n and " (map :def reason-fields))
+        fields-defs           (string/join "\n" (map :def reason-fields))
         fields-str            (string/join ",\n" (map :let-name reason-fields))]
-    (str ;;fields-defs
-         top-name " =
-  lazy
+    (str fields-defs
+      "\nlet " top-name " =
    Schema.(
       obj
         \"" top-name "\"
@@ -128,4 +136,4 @@
           fun " top-name "Type => 
         [
 " fields-str "
-        ]))")))
+        ]));")))
