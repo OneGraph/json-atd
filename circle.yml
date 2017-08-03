@@ -10,6 +10,6 @@ deployment:
   production:
     branch: master
     commands:
-      - lein cljsbuild min
+      - lein cljsbuild once min
       - npm install -g firebase-tools
       - firebase deploy --token "$FIREBASE_TOKEN"
